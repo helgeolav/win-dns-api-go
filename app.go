@@ -1,18 +1,55 @@
 package main
 
 import (
+	"bitbucket.org/HelgeOlav/jwtauthrequest/jwtauthapi"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"os/exec"
 	"regexp"
-
-	"github.com/gorilla/mux"
+	"strings"
 )
+
+var jwt *jwtauthapi.ClientConfig
+
+// validateToken confirms if the passed token is valid, returns true if token is valid
+func validateToken(req *http.Request) error {
+	if req == nil {
+		return errors.New("nil request passed")
+	}
+	// find token from http.Request
+	var token string
+	if keys, ok := req.URL.Query()[jwt.TokenName]; ok {
+		if len(keys) > 0 {
+			token = keys[0]
+		}
+	} else {
+		token = req.Header.Get(jwt.TokenName)
+		if len(jwt.TrimPrefix) > 0 {
+			token = strings.TrimPrefix(token, jwt.TrimPrefix)
+		}
+	}
+	// validate token
+	err := jwt.ValidateJWT(token)
+	if err != nil {
+		log.Println(err, token)
+	}
+	return err
+}
 
 // DoDNSSet Set
 func DoDNSSet(w http.ResponseWriter, r *http.Request) {
+	// check JWT
+	{
+		err := validateToken(r)
+		if err != nil {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"message": err.Error()})
+			return
+		}
+	}
 	vars := mux.Vars(r)
 	zoneName, dnsType, nodeName, ipAddress := vars["zoneName"], vars["dnsType"], vars["nodeName"], vars["ipAddress"]
 
@@ -65,6 +102,14 @@ func DoDNSSet(w http.ResponseWriter, r *http.Request) {
 
 // DoDNSRemove Remove
 func DoDNSRemove(w http.ResponseWriter, r *http.Request) {
+	// check JWT
+	{
+		err := validateToken(r)
+		if err != nil {
+			respondWithJSON(w, http.StatusForbidden, map[string]string{"message": err.Error()})
+			return
+		}
+	}
 	vars := mux.Vars(r)
 	zoneName, dnsType, nodeName := vars["zoneName"], vars["dnsType"], vars["nodeName"]
 
@@ -116,6 +161,24 @@ const (
 )
 
 func main() {
+	// load jwt config
+	var err error
+	jwt, err = jwtauthapi.LoadJsonFromFile("config.json")
+	if err != nil {
+		log.Println("Could not load config.json from current directoy, using defaults")
+		jwt = new(jwtauthapi.ClientConfig)
+		jwt.HMAC = "mysharedsecret"
+		jwt.AllowedAlgo = []string{"HS256"}
+		jwt.Issuer = "win-dns-api-go"
+		jwt.Audience = []string{jwt.Issuer}
+		jwt.TokenName = "token"
+	}
+	// init
+	err = jwt.Init()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// start HTTP server
 	r := mux.NewRouter()
 	r.NotFoundHandler = http.HandlerFunc(notFoundHandler)
 
@@ -123,11 +186,10 @@ func main() {
 		respondWithJSON(w, http.StatusOK, map[string]string{"message": "Welcome to Win DNS API Go"})
 	})
 
-	r.Methods("GET").Path("/dns/{zoneName}/{dnsType}/{nodeName}/set/{ipAddress}").HandlerFunc(DoDNSSet)
-	r.Methods("POST").Path("/dns/{zoneName}/{dnsType}/{nodeName}/set/{ipAddress}").HandlerFunc(DoDNSSet)
+	r.Methods(http.MethodGet).Path("/dns/{zoneName}/{dnsType}/{nodeName}/set/{ipAddress}").HandlerFunc(DoDNSSet)
 
-	r.Methods("GET").Path("/dns/{zoneName}/{dnsType}/{nodeName}/remove").HandlerFunc(DoDNSRemove)
-	r.Methods("POST").Path("/dns/{zoneName}/{dnsType}/{nodeName}/remove").HandlerFunc(DoDNSRemove)
+	r.Methods(http.MethodGet).Path("/dns/{zoneName}/{dnsType}/{nodeName}/remove").HandlerFunc(DoDNSRemove)
+	r.Methods(http.MethodDelete).Path("/dns/{zoneName}/{dnsType}/{nodeName}").HandlerFunc(DoDNSRemove)
 
 	fmt.Printf("Listening on port %d.\n", serverPort)
 
