@@ -8,3 +8,9 @@ To run this as a service take a look at [NSSM](http://nssm.cc/)
 
 Authentication is used using JWT tokens and the [jwtauthapi](https://bitbucket.org/HelgeOlav/jwtauthrequest/src/master/jwtauthapi/) library.
 The JWT validation configuration is loaded from the file "config.json" in the current directory.
+
+To crosscompile to Windows use:
+
+```bash
+GOOS=windows GOARCH=amd64 go build .
+```

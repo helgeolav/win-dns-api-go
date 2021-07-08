@@ -166,12 +166,22 @@ func main() {
 	jwt, err = jwtauthapi.LoadJsonFromFile("config.json")
 	if err != nil {
 		log.Println("Could not load config.json from current directoy, using defaults")
-		jwt = new(jwtauthapi.ClientConfig)
-		jwt.HMAC = "mysharedsecret"
-		jwt.AllowedAlgo = []string{"HS256"}
-		jwt.Issuer = "win-dns-api-go"
-		jwt.Audience = []string{jwt.Issuer}
+		var myKeyAsByte = []byte("mysharedsecret")
+		tf := jwtauthapi.TokenFactory{
+			HMAC:       myKeyAsByte,
+			Issuer:     "win-dns-api-go",
+			ExpireTime: 60 * 60 * 24,
+			Audience:   "win-dns-api-go",
+			Extras:     nil,
+		}
+		tmpJwt := tf.GetClientConfig()
+		jwt = &tmpJwt
 		jwt.TokenName = "token"
+		token, err := tf.Issue()
+		if err != nil {
+			log.Fatalln(err)
+		}
+		log.Println("Debug token:", token)
 	}
 	// init
 	err = jwt.Init()
